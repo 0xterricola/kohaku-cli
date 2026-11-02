@@ -508,9 +508,42 @@ export function registerTransactRawCommand(program: Command): void {
             transport,
             reviewDigest: transport === "native"
               ? async ({ operation, digest, payload }) => {
-                  console.error("=== Exact hardware signing payload ===");
+                  const typed = operation === "EIP-712"
+                    ? payload as {
+                        primaryType?: string;
+                        domain?: unknown;
+                        message?: Record<string, unknown>;
+                      }
+                    : undefined;
+
+                  const { callData, ...fields } = typed?.message ?? {};
+                  const callDataHex =
+                    typeof callData === "string" &&
+                    /^0x(?:[0-9a-fA-F]{2})*$/.test(callData)
+                      ? callData as `0x${string}`
+                      : undefined;
+
+                  const summary = typed
+                    ? {
+                        operation,
+                        digest,
+                        primaryType: typed.primaryType,
+                        domain: typed.domain,
+                        message: {
+                          ...fields,
+                          callData: callDataHex
+                            ? {
+                                bytes: (callDataHex.length - 2) / 2,
+                                hash: keccak256(callDataHex),
+                              }
+                            : callData,
+                        },
+                      }
+                    : { operation, digest, payload };
+
+                  console.error("=== Hardware signing review ===");
                   console.error(JSON.stringify(
-                    { operation, digest, payload },
+                    summary,
                     (_, value) =>
                       typeof value === "bigint"
                         ? value.toString()
