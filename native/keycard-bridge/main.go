@@ -114,22 +114,28 @@ func readPIN() (string, error) {
 	}
 	defer tty.Close()
 
-	fmt.Fprint(tty, "Keycard PIN: ")
-	pin, err := term.ReadPassword(int(tty.Fd()))
+	return readPINFrom(tty, term.ReadPassword)
+}
+
+func readPINFrom(
+	tty *os.File,
+	readPassword func(int) ([]byte, error),
+) (string, error) {
+	if _, err := fmt.Fprint(tty, "Keycard PIN: "); err != nil {
+		return "", errors.New("PIN prompt unavailable")
+	}
+
+	pin, err := readPassword(int(tty.Fd()))
+	defer clear(pin)
 	fmt.Fprintln(tty)
 
 	if err != nil {
 		return "", errors.New("PIN entry cancelled")
 	}
-
-	defer clear(pin)
-
 	if len(pin) == 0 || len(pin) > 64 {
 		return "", errors.New("invalid PIN length")
 	}
 
-	// The SDK accepts string credentials. Go cannot guarantee
-	// zeroization of the resulting immutable string.
 	return string(pin), nil
 }
 
@@ -187,6 +193,29 @@ func recoverSignature(
 	}, nil
 }
 
+func selectPresentReader(
+	states []scard.ReaderState,
+) (string, error) {
+	var selected string
+
+	for _, state := range states {
+		if state.EventState&scard.StatePresent == 0 {
+			continue
+		}
+		if selected != "" {
+			return "", errors.New(
+				"multiple cards present; specify --reader",
+			)
+		}
+		selected = state.Reader
+	}
+
+	if selected == "" {
+		return "", errors.New("no card inserted")
+	}
+	return selected, nil
+}
+
 func connectCard(readerName string) (
 	*keycard.CommandSet,
 	func(),
@@ -217,22 +246,10 @@ func connectCard(readerName string) (
 			return nil, nil, fmt.Errorf("reader status: %w", err)
 		}
 
-		for _, state := range states {
-			if state.EventState&scard.StatePresent == 0 {
-				continue
-			}
-			if readerName != "" {
-				ctx.Release()
-				return nil, nil, errors.New(
-					"multiple cards present; specify --reader",
-				)
-			}
-			readerName = state.Reader
-		}
-
-		if readerName == "" {
+		readerName, err = selectPresentReader(states)
+		if err != nil {
 			ctx.Release()
-			return nil, nil, errors.New("no card inserted")
+			return nil, nil, err
 		}
 	} else {
 		found := false
