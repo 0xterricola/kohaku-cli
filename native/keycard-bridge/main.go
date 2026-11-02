@@ -265,11 +265,18 @@ func connectCard(readerName string) (
 		}
 	}
 
-	card, err := ctx.Connect(
-		readerName, scard.ShareShared, scard.ProtocolAny,
+	var card *scard.Card
+	err = runWithFailureCleanup(
+		func() error {
+			var connectErr error
+			card, connectErr = ctx.Connect(
+				readerName, scard.ShareShared, scard.ProtocolAny,
+			)
+			return connectErr
+		},
+		func() { ctx.Release() },
 	)
 	if err != nil {
-		ctx.Release()
 		return nil, nil, errors.New("cannot connect to card")
 	}
 
@@ -282,8 +289,7 @@ func connectCard(readerName string) (
 		keycardio.NewNormalChannel(card),
 	)
 
-	if err := kc.Select(); err != nil {
-		cleanup()
+	if err := runWithFailureCleanup(kc.Select, cleanup); err != nil {
 		return nil, nil, err
 	}
 
