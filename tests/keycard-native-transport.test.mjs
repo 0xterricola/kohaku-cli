@@ -11,6 +11,7 @@ import { join } from "node:path";
 
 import {
   isAddressEqual,
+  hashMessage,
   parseSignature,
   recoverMessageAddress,
 } from "viem";
@@ -70,9 +71,22 @@ esac
     writeFileSync(binary, script, { mode: 0o700 });
     chmodSync(binary, 0o700);
 
+    let allowSigning = false;
+    let reviewed = 0;
+
     const account = createKeycardAccount({
       binary,
       transport: "native",
+      reviewDigest: async ({ operation, digest, payload }) => {
+        assert.equal(operation, "EIP-191");
+        assert.equal(digest, hashMessage(message));
+        assert.equal(payload, message);
+        reviewed++;
+
+        if (!allowSigning) {
+          throw new Error("Review denied");
+        }
+      },
     });
 
     assert.ok(isAddressEqual(
@@ -80,7 +94,14 @@ esac
       software.address
     ));
 
+    await assert.rejects(
+      account.signMessage({ message }),
+      /Review denied/,
+    );
+
+    allowSigning = true;
     const result = await account.signMessage({ message });
+    assert.equal(reviewed, 2);
 
     const recovered = await recoverMessageAddress({
       message,

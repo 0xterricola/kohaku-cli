@@ -33,10 +33,16 @@ export function createKeycardAccount({
   binary,
   path = "m/44'/60'/0'/0/0",
   transport = "cli",
+  reviewDigest,
 }: {
   binary: string;
   path?: string;
   transport?: "cli" | "native";
+  reviewDigest?: (review: {
+    operation: string;
+    digest: Hex;
+    payload: unknown;
+  }) => Promise<void>;
 }) {
   if (!binary) throw new Error("Keycard CLI binary required");
   if (transport !== "cli" && transport !== "native") {
@@ -83,7 +89,15 @@ export function createKeycardAccount({
     throw new Error("Keycard public key/address mismatch");
   }
 
-  async function signDigest(digest: Hex): Promise<Hex> {
+  async function signDigest(
+    digest: Hex,
+    operation: string,
+    payload: unknown,
+  ): Promise<Hex> {
+    // The approved digest is the exact digest sent to the bridge.
+    if (reviewDigest) {
+      await reviewDigest({ operation, digest, payload });
+    }
     const result = transport === "native"
       ? command<KeycardSignature>("sign-digest", [
           "--hex", digest,
@@ -123,11 +137,15 @@ export function createKeycardAccount({
     address,
 
     async signMessage({ message }) {
-      return signDigest(hashMessage(message));
+      return signDigest(hashMessage(message), "EIP-191", message);
     },
 
     async signTypedData(typedData) {
-      return signDigest(hashTypedData(typedData));
+      return signDigest(
+        hashTypedData(typedData),
+        "EIP-712",
+        typedData,
+      );
     },
 
     async signTransaction(transaction, options) {
@@ -161,7 +179,7 @@ export function createKeycardAccount({
       }
 
       const digest = keccak256(serializeTransaction(tx));
-      const signature = await signDigest(digest);
+      const signature = await signDigest(digest, "EIP-1559", tx);
       const signed = serializeTransaction(
         tx,
         parseSignature(signature),
@@ -201,6 +219,8 @@ export function createKeycardAccount({
           chainId,
           nonce,
         }),
+        "EIP-7702 authorization",
+        { contractAddress: delegate, chainId, nonce },
       );
 
       return {

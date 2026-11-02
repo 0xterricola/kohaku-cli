@@ -506,6 +506,28 @@ export function registerTransactRawCommand(program: Command): void {
             binary,
             path: opts.keycardPath,
             transport,
+            reviewDigest: transport === "native"
+              ? async ({ operation, digest, payload }) => {
+                  console.error("=== Exact hardware signing payload ===");
+                  console.error(JSON.stringify(
+                    { operation, digest, payload },
+                    (_, value) =>
+                      typeof value === "bigint"
+                        ? value.toString()
+                        : value,
+                    2,
+                  ));
+
+                  const approved = await confirm({
+                    message: "Approve this exact signing payload?",
+                    default: false,
+                  });
+
+                  if (!approved) {
+                    throw new Error("Signing payload rejected.");
+                  }
+                }
+              : undefined,
           });
 
           if (
