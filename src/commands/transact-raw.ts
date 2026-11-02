@@ -1,4 +1,4 @@
-import { createPublicClient, custom } from "viem";
+import { createPublicClient, custom, http } from "viem";
 import { foundry } from "viem/chains";
 import { startActivityLog } from "../utils/activity-log.js";
 import { confirm, select } from "@inquirer/prompts";
@@ -14,6 +14,10 @@ import {
   recoverTransactionAddress,
 } from "viem";
 import { createKeycardAccount } from "../utils/keycard-account.js";
+import {
+  SEPOLIA_CHAIN_ID,
+  preflightSepoliaTransaction,
+} from "../utils/keycard-sepolia-preflight.js";
 
 import {
   formatPublicAccountBalanceLabel,
@@ -67,6 +71,7 @@ type TransactRawOpts = {
   keycardCli?: string;
   keycardBridge?: string;
   keycardTransport?: string;
+  keycardSepoliaOffline?: boolean;
   keycardPath?: string;
   chainId?: string;
   nonce?: string;
@@ -262,6 +267,7 @@ export function registerTransactRawCommand(program: Command): void {
     .option("--keycard-cli <path>", "Patched Keycard CLI binary")
     .option("--keycard-bridge <path>", "Native Keycard bridge binary")
     .option("--keycard-transport <mode>", "Keycard transport: cli or native (default: cli)")
+    .option("--keycard-sepolia-offline", "RPC-validated Sepolia offline Keycard signing")
     .option("--keycard-path <path>", "Keycard derivation path")
     .option("--keycard-userop", "Sign an offline Keycard Simple7702 batch")
     .option("--call-gas-limit <gas>", "Offline UserOperation call gas")
@@ -319,7 +325,7 @@ export function registerTransactRawCommand(program: Command): void {
           }
           if (
             opts.wallet || opts.password || opts.passwordFile ||
-            opts.rpcUrl
+            (opts.rpcUrl && !opts.keycardSepoliaOffline)
           ) {
             throw new Error(
               "Offline Keycard signing does not use wallet, password, or RPC options."
@@ -368,7 +374,19 @@ export function registerTransactRawCommand(program: Command): void {
           }
 
           const chainId = integer(opts.chainId, "--chain-id", 1);
-          if (chainId !== 31337) {
+          if (opts.keycardSepoliaOffline) {
+            if (chainId !== SEPOLIA_CHAIN_ID) {
+              throw new Error("Sepolia offline mode requires chain 11155111.");
+            }
+            if (opts.keycardUserop) {
+              throw new Error(
+                "Sepolia offline mode supports EIP-1559 only."
+              );
+            }
+            if (!opts.rpcUrl) {
+              throw new Error("Sepolia offline mode requires --rpc-url.");
+            }
+          } else if (chainId !== 31337) {
             throw new Error(
               "Prototype restricted to development chain 31337."
             );
@@ -411,6 +429,12 @@ export function registerTransactRawCommand(program: Command): void {
 
           const transport = opts.keycardTransport ?? "cli";
 
+          if (opts.keycardSepoliaOffline && transport !== "native") {
+            throw new Error(
+              "Sepolia offline mode requires native Keycard transport."
+            );
+          }
+
           if (transport !== "cli" && transport !== "native") {
             throw new Error(
               "--keycard-transport must be cli or native."
@@ -449,6 +473,43 @@ export function registerTransactRawCommand(program: Command): void {
             throw new Error(
               "Native Keycard signing requires an explicit --from address."
             );
+          }
+
+          if (opts.keycardSepoliaOffline) {
+            const tx = buildRawTransactions(
+              targets, payloads, values
+            )[0]!;
+
+            const rpcClient = createPublicClient({
+              transport: http(opts.rpcUrl!, {
+                retryCount: 0,
+                timeout: 10000,
+              }),
+            });
+
+            const preflight = await preflightSepoliaTransaction(
+              rpcClient,
+              {
+                from: getAddress(opts.from!),
+                to: getAddress(tx.to),
+                data: tx.data as `0x${string}`,
+                value: tx.value,
+                nonce: integer(opts.nonce, "--nonce", 0),
+                gas: amount(opts.gas, "--gas", 1n),
+                maxFeePerGas,
+                maxPriorityFeePerGas,
+              },
+            );
+
+            console.error("=== Sepolia RPC preflight ===");
+            console.error(JSON.stringify(
+              preflight,
+              (_, value) =>
+                typeof value === "bigint"
+                  ? value.toString()
+                  : value,
+              2,
+            ));
           }
 
           // Review intent before any Keycard authentication.
