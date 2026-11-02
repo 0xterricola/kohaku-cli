@@ -33,12 +33,13 @@ func parseOptions(args []string) (options, error) {
 	var opts options
 
 	if len(args) == 0 {
-		return opts, errors.New("expected get-address or sign-digest")
+		return opts, errors.New("expected card-info, get-address, or sign-digest")
 	}
 
 	opts.action = args[0]
 
-	if opts.action != "get-address" &&
+	if opts.action != "card-info" &&
+		opts.action != "get-address" &&
 		opts.action != "sign-digest" {
 		return opts, errors.New("unsupported operation")
 	}
@@ -57,6 +58,21 @@ func parseOptions(args []string) (options, error) {
 
 	if len(fs.Args()) != 0 {
 		return opts, errors.New("unexpected positional arguments")
+	}
+
+	if opts.action == "card-info" {
+		invalid := false
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name != "reader" {
+				invalid = true
+			}
+		})
+		if invalid {
+			return opts, errors.New(
+				"card-info accepts only --reader",
+			)
+		}
+		return opts, nil
 	}
 
 	if !strings.HasPrefix(opts.path, "m/") {
@@ -302,6 +318,16 @@ func execute(opts options) error {
 		return err
 	}
 	defer cleanup()
+
+	if opts.action == "card-info" {
+		if kc.ApplicationInfo == nil {
+			return errors.New("card application info unavailable")
+		}
+		info := kc.ApplicationInfo
+		return json.NewEncoder(os.Stdout).Encode(
+			cardInfoResult(info.AppVersion(), info.AvailableSlots),
+		)
+	}
 
 	version, known := kc.SecureChannelVersion()
 	legacy := !known || version != keycard.VersionV2
