@@ -21,6 +21,7 @@ import { registerImportTornadoNoteCommand } from "./commands/import-tornado-note
 import { registerExportTornadoNoteCommand } from "./commands/export-tornado-note";
 import { registerTransferCommand } from "./commands/transfer";
 import { registerTransactRawCommand } from "./commands/transact-raw";
+import { registerKeycardSubmitSepoliaCommand } from "./commands/keycard-submit-sepolia";
 import { registerViewNetworkTrafficCommand } from "./commands/viewNetworkTraffic";
 import { registerClearTorCacheCommand } from "./commands/clear-tor-cache";
 import { registerFetchSyncCacheCommand } from "./commands/fetch-sync-cache";
@@ -62,6 +63,7 @@ async function main(): Promise<void> {
   registerBalancesCommand(program);
   registerTransferCommand(program);
   registerTransactRawCommand(program);
+  registerKeycardSubmitSepoliaCommand(program);
   registerRegisterNameCommand(program);
   registerRenewNameCommand(program);
   registerTransferNameCommand(program);
