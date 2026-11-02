@@ -442,6 +442,66 @@ export function registerTransactRawCommand(program: Command): void {
             );
           }
 
+          if (
+            transport === "native" &&
+            (!opts.from || !isAddress(opts.from))
+          ) {
+            throw new Error(
+              "Native Keycard signing requires an explicit --from address."
+            );
+          }
+
+          // Review intent before any Keycard authentication.
+          // This is host-side review, not trusted hardware display.
+          const review = {
+            operation: userOpFields
+              ? "EIP-7702 UserOperation"
+              : "EIP-1559 transaction",
+            from: opts.from ?? "Hardware address not yet verified",
+            chainId,
+            derivationPath:
+              opts.keycardPath ?? "m/44'/60'/0'/0/0",
+            calls: buildRawTransactions(targets, payloads, values),
+            nonce: userOpFields
+              ? undefined
+              : integer(opts.nonce, "--nonce", 0),
+            gas: userOpFields
+              ? undefined
+              : amount(opts.gas, "--gas", 1n),
+            maxFeePerGas,
+            maxPriorityFeePerGas,
+            userOperationGas: userOpFields,
+            delegationImplementation: userOpFields
+              ? SIMPLE_7702_IMPLEMENTATION
+              : undefined,
+          };
+
+          if (opts.nonInteractive) {
+            throw new Error(
+              "Interactive Keycard approval required; " +
+              "--non-interactive is not permitted."
+            );
+          }
+
+          console.error("=== Keycard signing intent ===");
+          console.error(JSON.stringify(
+            review,
+            (_, value) =>
+              typeof value === "bigint"
+                ? value.toString()
+                : value,
+            2,
+          ));
+
+          const approved = await confirm({
+            message: "Approve this Keycard signing intent?",
+            default: false,
+          });
+
+          if (!approved) {
+            throw new Error("Keycard signing cancelled.");
+          }
+
           const account = createKeycardAccount({
             binary,
             path: opts.keycardPath,
