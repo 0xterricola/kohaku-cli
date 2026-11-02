@@ -15,6 +15,9 @@ import {
 } from "viem";
 import { createKeycardAccount } from "../utils/keycard-account.js";
 import {
+  verifySignedKeycardTransaction,
+} from "../utils/keycard-verify-transaction.js";
+import {
   SEPOLIA_CHAIN_ID,
   preflightSepoliaTransaction,
 } from "../utils/keycard-sepolia-preflight.js";
@@ -737,6 +740,22 @@ export function registerTransactRawCommand(program: Command): void {
             );
           }
 
+          const verifiedHash =
+            await verifySignedKeycardTransaction(
+              signed,
+              {
+                from: account.address,
+                to: getAddress(tx.to),
+                chainId,
+                nonce,
+                gas,
+                value: tx.value,
+                data: tx.data as `0x${string}`,
+                maxFeePerGas,
+                maxPriorityFeePerGas,
+              },
+            );
+
           console.log(JSON.stringify({
             mode: "keycard-offline-eip1559",
             broadcast: false,
@@ -745,7 +764,7 @@ export function registerTransactRawCommand(program: Command): void {
             chainId,
             nonce,
             value: tx.value.toString(),
-            transactionHash: keccak256(signed),
+            transactionHash: verifiedHash,
             signedTransaction: signed,
           }, null, 2));
         } catch (e) {
