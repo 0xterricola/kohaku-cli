@@ -273,10 +273,10 @@ func connectCard(readerName string) (
 		return nil, nil, errors.New("cannot connect to card")
 	}
 
-	cleanup := func() {
-		card.Disconnect(scard.ResetCard)
-		ctx.Release()
-	}
+	cleanup := makeCardCleanup(
+		func() { card.Disconnect(scard.ResetCard) },
+		func() { ctx.Release() },
+	)
 
 	kc := keycard.NewCommandSet(
 		keycardio.NewNormalChannel(card),
