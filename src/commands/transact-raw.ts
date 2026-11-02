@@ -65,6 +65,8 @@ type TransactRawOpts = {
   verificationGasLimit?: string;
   preVerificationGas?: string;
   keycardCli?: string;
+  keycardBridge?: string;
+  keycardTransport?: string;
   keycardPath?: string;
   chainId?: string;
   nonce?: string;
@@ -258,6 +260,8 @@ export function registerTransactRawCommand(program: Command): void {
     )
     .option("--signer <backend>", "Signer backend: software or keycard", "software")
     .option("--keycard-cli <path>", "Patched Keycard CLI binary")
+    .option("--keycard-bridge <path>", "Native Keycard bridge binary")
+    .option("--keycard-transport <mode>", "Keycard transport: cli or native (default: cli)")
     .option("--keycard-path <path>", "Keycard derivation path")
     .option("--keycard-userop", "Sign an offline Keycard Simple7702 batch")
     .option("--call-gas-limit <gas>", "Offline UserOperation call gas")
@@ -405,18 +409,43 @@ export function registerTransactRawCommand(program: Command): void {
             );
           }
 
+          const transport = opts.keycardTransport ?? "cli";
+
+          if (transport !== "cli" && transport !== "native") {
+            throw new Error(
+              "--keycard-transport must be cli or native."
+            );
+          }
+
+          if (transport === "native" && opts.keycardCli) {
+            throw new Error(
+              "Use --keycard-bridge with native transport."
+            );
+          }
+
+          if (transport === "cli" && opts.keycardBridge) {
+            throw new Error(
+              "--keycard-bridge requires native transport."
+            );
+          }
+
           const binary =
-            opts.keycardCli ?? process.env.KOHAKU_KEYCARD_CLI;
+            transport === "native"
+              ? opts.keycardBridge ?? process.env.KOHAKU_KEYCARD_BRIDGE
+              : opts.keycardCli ?? process.env.KOHAKU_KEYCARD_CLI;
 
           if (!binary) {
             throw new Error(
-              "Provide --keycard-cli or KOHAKU_KEYCARD_CLI."
+              transport === "native"
+                ? "Provide --keycard-bridge or KOHAKU_KEYCARD_BRIDGE."
+                : "Provide --keycard-cli or KOHAKU_KEYCARD_CLI."
             );
           }
 
           const account = createKeycardAccount({
             binary,
             path: opts.keycardPath,
+            transport,
           });
 
           if (
@@ -545,6 +574,7 @@ export function registerTransactRawCommand(program: Command): void {
           }, null, 2));
         } catch (e) {
           cliErrorFromCaught(e);
+          process.exitCode = 1;
         }
         return;
       }

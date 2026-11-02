@@ -204,13 +204,36 @@ func connectCard(readerName string) (
 	}
 
 	if readerName == "" {
-		if len(readers) != 1 {
-			ctx.Release()
-			return nil, nil, errors.New(
-				"multiple readers; specify --reader",
-			)
+		states := make([]scard.ReaderState, len(readers))
+		for i, name := range readers {
+			states[i] = scard.ReaderState{
+				Reader:       name,
+				CurrentState: scard.StateUnaware,
+			}
 		}
-		readerName = readers[0]
+
+		if err := ctx.GetStatusChange(states, 0); err != nil {
+			ctx.Release()
+			return nil, nil, fmt.Errorf("reader status: %w", err)
+		}
+
+		for _, state := range states {
+			if state.EventState&scard.StatePresent == 0 {
+				continue
+			}
+			if readerName != "" {
+				ctx.Release()
+				return nil, nil, errors.New(
+					"multiple cards present; specify --reader",
+				)
+			}
+			readerName = state.Reader
+		}
+
+		if readerName == "" {
+			ctx.Release()
+			return nil, nil, errors.New("no card inserted")
+		}
 	} else {
 		found := false
 		for _, name := range readers {
