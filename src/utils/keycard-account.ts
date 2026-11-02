@@ -32,30 +32,48 @@ type KeycardSignature = {
 export function createKeycardAccount({
   binary,
   path = "m/44'/60'/0'/0/0",
+  transport = "cli",
 }: {
   binary: string;
   path?: string;
+  transport?: "cli" | "native";
 }) {
   if (!binary) throw new Error("Keycard CLI binary required");
-  if (!process.env.KEYCARD_PIN) {
+  if (transport !== "cli" && transport !== "native") {
+    throw new Error("Unsupported Keycard transport");
+  }
+
+  if (transport === "cli" && !process.env.KEYCARD_PIN) {
     throw new Error("KEYCARD_PIN required for prototype");
+  }
+
+  // Never forward legacy card credentials to the native process.
+  // The native bridge reads its PIN directly from /dev/tty.
+  const childEnv = { ...process.env };
+  if (transport === "native") {
+    delete childEnv.KEYCARD_PIN;
+    delete childEnv.KEYCARD_PUK;
+    delete childEnv.KEYCARD_PAIRING_PASSWORD;
   }
 
   function command<T>(name: string, args: string[]): T {
     const output = execFileSync(
       binary,
-      [name, ...args, "--json", "--log-level", "error"],
+      transport === "native"
+        ? [name, ...args]
+        : [name, ...args, "--json", "--log-level", "error"],
       {
         encoding: "utf8",
         maxBuffer: 1024 * 1024,
         stdio: ["ignore", "pipe", "pipe"],
+        env: childEnv,
       },
     );
     return JSON.parse(output) as T;
   }
 
   const exported = command<KeycardPublicKey>(
-    "export-public-key",
+    transport === "native" ? "get-address" : "export-public-key",
     ["--path", path],
   );
 
@@ -66,11 +84,17 @@ export function createKeycardAccount({
   }
 
   async function signDigest(digest: Hex): Promise<Hex> {
-    const result = command<KeycardSignature>("sign", [
-      "--hex", digest,
-      "--path", path,
-      "--algo", "ecdsa",
-    ]);
+    const result = transport === "native"
+      ? command<KeycardSignature>("sign-digest", [
+          "--hex", digest,
+          "--path", path,
+          "--expected-address", address,
+        ])
+      : command<KeycardSignature>("sign", [
+          "--hex", digest,
+          "--path", path,
+          "--algo", "ecdsa",
+        ]);
 
     const yParity = Number(result.signature_v);
     if (yParity !== 0 && yParity !== 1) {
