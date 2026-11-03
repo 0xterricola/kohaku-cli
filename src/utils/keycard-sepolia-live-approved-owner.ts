@@ -51,12 +51,10 @@ export function createLiveApprovedKeycardSepoliaOwner(opts: {
         review,
       });
 
-      // The guarded owner derives the digest from its own
-      // signing payload and rechecks that payload before
-      // forwarding it to the hardware signer.
+      // The guarded signer recomputes the signing payload
+      // digest independently from this chain-state callback.
       return {
         nonce: fresh.nonce,
-        digest: review.digest,
         unsignedIntentDigest: fresh.unsignedIntentDigest,
       };
     },

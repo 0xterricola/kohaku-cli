@@ -25,7 +25,6 @@ type SigningOwner = LocalAccount & {
 
 type FreshState = {
   nonce: bigint;
-  digest: Hex;
   unsignedIntentDigest: Hex;
 };
 
@@ -115,7 +114,17 @@ export function createApprovedKeycardSepoliaOwner(opts: {
           unsignedIntentDigest: intent,
         },
         approve: opts.approve,
-        revalidate: opts.revalidate,
+        revalidate: async review => {
+          const fresh = await opts.revalidate(review);
+          return {
+            ...fresh,
+            digest: hashAuthorization({
+              contractAddress: delegate,
+              chainId: request.chainId,
+              nonce: request.nonce,
+            }),
+          };
+        },
         sign: async () => {
           const signed =
             await opts.owner.signAuthorization(request);
@@ -193,7 +202,13 @@ export function createApprovedKeycardSepoliaOwner(opts: {
           unsignedIntentDigest: intent,
         },
         approve: opts.approve,
-        revalidate: opts.revalidate,
+        revalidate: async review => {
+          const fresh = await opts.revalidate(review);
+          return {
+            ...fresh,
+            digest: hashTypedData(payload),
+          };
+        },
         sign: async () => {
           // Detect mutation before forwarding to the signer.
           if (hashTypedData(payload) !== digest) {
