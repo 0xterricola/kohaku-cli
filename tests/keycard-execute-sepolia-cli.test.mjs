@@ -107,12 +107,12 @@ test("read-only readiness validates a proposed batch", async () => {
   });
 });
 
-test("broadcast is disabled before all RPC access", async () => {
+test("broadcast requires an interactive terminal before RPC access", async () => {
   await withMockRpc({}, async (args, methods) => {
     const result = await run([...args, "--broadcast"]);
 
     assert.notEqual(result.code, 0);
-    assert.match(result.output, /submission is not enabled/);
+    assert.match(result.output, /Interactive terminal required/);
     assert.equal(methods.length, 0);
   });
 });
@@ -177,6 +177,21 @@ test("hardware bridge cannot be silently ignored", async () => {
 
     assert.notEqual(result.code, 0);
     assert.match(result.output, /require --verify-keycard/);
+    assert.equal(methods.length, 0);
+  });
+});
+
+test("broadcast with a bridge still rejects non-TTY execution", async () => {
+  await withMockRpc({}, async (args, methods) => {
+    const result = await run([
+      ...args,
+      "--broadcast",
+      "--keycard-bridge",
+      "/nonexistent/keycard-bridge",
+    ]);
+
+    assert.notEqual(result.code, 0);
+    assert.match(result.output, /Interactive terminal required/);
     assert.equal(methods.length, 0);
   });
 });

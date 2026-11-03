@@ -1,7 +1,9 @@
 import { confirm } from "@inquirer/prompts";
-import { isAbsolute } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join } from "node:path";
 import type { Command } from "commander";
 import { createKeycardAccount } from "../utils/keycard-account.js";
+import { sendLiveKeycardSepoliaUserOperation } from "../utils/keycard-sepolia-userop-execution.js";
 import {
   createPublicClient,
   formatEther,
@@ -24,6 +26,7 @@ type Options = {
   values?: string;
   rpcUrl: string;
   broadcast?: boolean;
+  withoutTor?: boolean;
   verifyKeycard?: boolean;
   prepareUnsigned?: boolean;
   estimateGas?: boolean;
@@ -79,7 +82,7 @@ export function registerKeycardExecuteSepoliaCommand(
   program
     .command("keycard-execute-sepolia")
     .description(
-      "Inspect a proposed Keycard EIP-7702/ERC-4337 batch on Sepolia",
+      "Inspect or execute a Keycard EIP-7702/ERC-4337 batch on Sepolia",
     )
     .requiredOption("--from <address>", "Expected Keycard owner address")
     .requiredOption("--targets <addresses>", "Comma-separated call targets")
@@ -87,6 +90,7 @@ export function registerKeycardExecuteSepoliaCommand(
     .option("--values <wei>", "Comma-separated ETH values in wei")
     .requiredOption("--rpc-url <url>", "Sepolia JSON-RPC URL")
     .option("--broadcast", "Request live UserOperation execution")
+    .option("--without-tor", "Use clearnet bundler transport on Sepolia")
     .option("--verify-keycard", "Verify physical Keycard identity without signing")
     .option("--prepare-unsigned", "Resolve unsigned UserOperation nonce and calldata")
     .option("--estimate-gas", "Read-only heuristic UserOperation fee preview")
@@ -94,13 +98,30 @@ export function registerKeycardExecuteSepoliaCommand(
     .option("--keycard-path <path>", "Hardware derivation path")
     .action(async (opts: Options) => {
       try {
-        // Do not enable live execution before CLI integration testing.
-        // This check precedes RPC and hardware access.
+        // Fail before any RPC or hardware access.
         if (opts.broadcast) {
-          throw new Error(
-            "Live hardware UserOperation submission is not enabled " +
-            "in this checkpoint.",
-          );
+          if (!process.stdin.isTTY || !process.stdout.isTTY) {
+            throw new Error(
+              "Interactive terminal required for Keycard broadcasting.",
+            );
+          }
+          if (
+            !opts.keycardBridge ||
+            !isAbsolute(opts.keycardBridge)
+          ) {
+            throw new Error(
+              "--broadcast requires an absolute --keycard-bridge path.",
+            );
+          }
+          if (
+            opts.verifyKeycard ||
+            opts.prepareUnsigned ||
+            opts.estimateGas
+          ) {
+            throw new Error(
+              "Live broadcast cannot be combined with read-only modes.",
+            );
+          }
         }
 
         if (opts.verifyKeycard) {
@@ -118,7 +139,7 @@ export function registerKeycardExecuteSepoliaCommand(
               "Interactive terminal required for hardware verification.",
             );
           }
-        } else if (opts.keycardBridge || opts.keycardPath) {
+        } else if (!opts.broadcast && (opts.keycardBridge || opts.keycardPath)) {
           throw new Error(
             "Hardware bridge options require --verify-keycard.",
           );
@@ -186,7 +207,7 @@ export function registerKeycardExecuteSepoliaCommand(
 
         const review = {
           mode: "keycard-sepolia-userop-readiness",
-          broadcast: false,
+          broadcast: opts.broadcast === true,
           owner: from,
           chainId,
           pendingEoaNonce: nonce,
@@ -209,6 +230,148 @@ export function registerKeycardExecuteSepoliaCommand(
         };
 
         console.log(JSON.stringify(review, null, 2));
+
+        if (opts.broadcast) {
+          const accessApproved = await confirm({
+            message:
+              "Verify physical Keycard identity before live Sepolia " +
+              "execution? No signing yet.",
+            default: false,
+          });
+
+          if (!accessApproved) {
+            throw new Error("Physical Keycard access declined.");
+          }
+
+          const authorizedDigests = new Set<string>();
+
+          const hardware = createKeycardAccount({
+            binary: opts.keycardBridge!,
+            path: opts.keycardPath,
+            transport: "native",
+            reviewDigest: async ({ operation, digest }) => {
+              if (
+                operation !== "EIP-712" &&
+                operation !== "EIP-7702 authorization"
+              ) {
+                throw new Error("Unexpected hardware signing operation.");
+              }
+
+              if (!authorizedDigests.delete(digest.toLowerCase())) {
+                throw new Error(
+                  "Hardware digest was not explicitly approved.",
+                );
+              }
+            },
+          });
+
+          if (!isAddressEqual(hardware.address, from)) {
+            throw new Error("Physical Keycard owner mismatch.");
+          }
+
+          const journalDirectory = join(
+            homedir(),
+            ".kohaku-cli",
+            "keycard-sepolia-userops",
+          );
+
+          const result = await sendLiveKeycardSepoliaUserOperation({
+            client: client as unknown as
+              Parameters<typeof sendLiveKeycardSepoliaUserOperation>[0]["client"],
+            owner: hardware,
+            expectedOwner: from,
+            chainId: BigInt(sepolia.id),
+            calls,
+            rpcUrl: opts.rpcUrl,
+            withoutTor: opts.withoutTor === true,
+            journalDirectory,
+
+            approveSigning: async signingReview => {
+              console.log(JSON.stringify({
+                mode: "keycard-sepolia-signing-review",
+                stage: signingReview.stage,
+                owner: signingReview.owner,
+                chainId: signingReview.chainId,
+                nonce: signingReview.nonce.toString(),
+                digest: signingReview.digest,
+                unsignedIntentDigest:
+                  signingReview.unsignedIntentDigest,
+                calls: review.calls,
+              }, null, 2));
+
+              const approved = await confirm({
+                message:
+                  "Authorize physical Keycard signing for " +
+                  signingReview.stage + "?",
+                default: false,
+              });
+
+              if (approved) {
+                authorizedDigests.add(
+                  signingReview.digest.toLowerCase(),
+                );
+              }
+
+              return approved;
+            },
+
+            approve: async (hash, operation) => {
+              if (!isAddressEqual(operation.sender, from)) {
+                throw new Error("Prepared UserOperation sender mismatch.");
+              }
+
+              const gasLimit =
+                operation.callGasLimit +
+                operation.verificationGasLimit +
+                operation.preVerificationGas;
+
+              const maximumFee =
+                gasLimit * operation.maxFeePerGas;
+
+              if (
+                gasLimit <= 0n ||
+                operation.maxFeePerGas <= 0n ||
+                operation.maxPriorityFeePerGas >
+                  operation.maxFeePerGas
+              ) {
+                throw new Error("Invalid prepared UserOperation fees.");
+              }
+
+              console.log(JSON.stringify({
+                mode: "keycard-sepolia-submission-review",
+                userOpHash: hash,
+                sender: operation.sender,
+                nonce: operation.nonce.toString(),
+                callDataHash: keccak256(operation.callData),
+                gasLimit: gasLimit.toString(),
+                maxFeePerGasWei:
+                  operation.maxFeePerGas.toString(),
+                maximumFeeWei: maximumFee.toString(),
+                maximumFeeEth: formatEther(maximumFee),
+                journalDirectory,
+              }, null, 2));
+
+              return confirm({
+                message:
+                  "Submit this signed UserOperation to the " +
+                  "Sepolia bundler? This is the final broadcast.",
+                default: false,
+              });
+            },
+          });
+
+          console.log(JSON.stringify({
+            mode: "keycard-sepolia-userop-confirmed",
+            userOpHash: result.userOpHash,
+            txHash: result.txHash,
+            delegatedInUserOp: result.delegatedInUserOp,
+            implementation: result.implementation,
+            journalDirectory,
+          }, null, 2));
+
+          return;
+        }
+
 
         if (opts.prepareUnsigned) {
           const draft = await prepareKeycardSepoliaUnsignedDraft({
