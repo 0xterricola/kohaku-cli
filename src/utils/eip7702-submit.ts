@@ -6,12 +6,24 @@ import { recordSubmission } from "./activity-log.js";
 export async function submitPreparedShieldUserOp(opts: {
   chainId: bigint; entryPointAddress: Address; userOperation: UserOperation<"0.8">;
   onSubmitted?: (hash: Hash) => void;
+  /** Default-deny authorization before persistence or network submission. */
+  approve?: (
+    hash: Hash,
+    userOperation: UserOperation<"0.8">,
+  ) => Promise<boolean>;
   send: (operation: ReturnType<typeof formatUserOperationRequest>) => Promise<Hash>;
   wait: (hash: Hash) => Promise<{ success: boolean; receipt: { transactionHash: Hash } }>;
   confirm: (hash: Hash) => Promise<{ status: string }>;
 }): Promise<{ userOpHash: Hash; txHash: Hash }> {
   const userOpHash = getUserOperationHash({ chainId: Number(opts.chainId), entryPointAddress: opts.entryPointAddress,
     entryPointVersion: "0.8", userOperation: opts.userOperation });
+  if (
+    opts.approve &&
+    !(await opts.approve(userOpHash, opts.userOperation))
+  ) {
+    throw new Error("UserOperation submission rejected.");
+  }
+
   // Save first: even a process crash or lost eth_sendUserOperation response
   // leaves a hash to reconcile, and must not cause a second batch to start.
   opts.onSubmitted?.(userOpHash);

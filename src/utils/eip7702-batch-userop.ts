@@ -394,10 +394,22 @@ export async function sendEip7702BatchUserOperation(
     calls: readonly Eip7702BatchCall[];
     /** Persist the deterministic hash before sending. A timeout must not trigger the next batch. */
     onSubmitted?: (hash: Hash) => void;
+    /** Required when an external hardware-backed owner is provided. */
+    approve?: NonNullable<
+      Parameters<typeof submitPreparedShieldUserOp>[0]["approve"]
+    >;
   } & Eip7702TorOpts
 ): Promise<Eip7702BatchUserOpResult> {
   if (opts.calls.length === 0) {
     throw new Error("Cannot submit an empty EIP-7702 UserOperation call list.");
+  }
+
+  // Software-wallet behavior remains unchanged.
+  // External owners must supply a separate submission approval.
+  if (opts.owner && !opts.approve) {
+    throw new Error(
+      "External EIP-7702 owner requires explicit UserOperation submission approval."
+    );
   }
 
   return withTor(
@@ -438,6 +450,7 @@ export async function sendEip7702BatchUserOperation(
       const sent = await submitPreparedShieldUserOp({
         chainId: opts.chainId, entryPointAddress: account.entryPoint.address, userOperation: { ...prepared, signature },
         onSubmitted: opts.onSubmitted,
+        approve: opts.approve,
         send: (operation) => bundlerClient.request({ method: "eth_sendUserOperation", params: [operation, account.entryPoint.address] }, { retryCount: 0 }),
         wait: (hash) => bundlerClient.waitForUserOperationReceipt({ hash, timeout: RECEIPT_WAIT_MS }),
         confirm: (hash) => opts.client.waitForTransactionReceipt({ hash, confirmations: 1 }),
