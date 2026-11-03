@@ -15,6 +15,7 @@ import { sepolia } from "viem/chains";
 import { SIMPLE_7702_IMPLEMENTATION } from "../utils/simple-7702.js";
 import { buildKeycardSepoliaUnsignedIntent } from "../utils/keycard-sepolia-unsigned-intent.js";
 import { prepareKeycardSepoliaUnsignedDraft } from "../utils/keycard-sepolia-unsigned-draft.js";
+import { previewKeycardSepoliaGas } from "../utils/keycard-sepolia-heuristic-gas.js";
 
 type Options = {
   from: string;
@@ -25,6 +26,7 @@ type Options = {
   broadcast?: boolean;
   verifyKeycard?: boolean;
   prepareUnsigned?: boolean;
+  estimateGas?: boolean;
   keycardBridge?: string;
   keycardPath?: string;
 };
@@ -87,6 +89,7 @@ export function registerKeycardExecuteSepoliaCommand(
     .option("--broadcast", "Request live UserOperation execution")
     .option("--verify-keycard", "Verify physical Keycard identity without signing")
     .option("--prepare-unsigned", "Resolve unsigned UserOperation nonce and calldata")
+    .option("--estimate-gas", "Read-only heuristic UserOperation fee preview")
     .option("--keycard-bridge <path>", "Native Keycard bridge executable")
     .option("--keycard-path <path>", "Hardware derivation path")
     .action(async (opts: Options) => {
@@ -220,6 +223,29 @@ export function registerKeycardExecuteSepoliaCommand(
             delegationNeeded: currentCode === "0x",
             userOperationGas: null,
           }, null, 2));
+        }
+
+        if (opts.estimateGas) {
+          // The heuristic path uses standard PublicClient methods.
+          // The legacy estimator type also includes delegation methods
+          // used only by its signed-owner branch.
+          const gasPreview = await previewKeycardSepoliaGas({
+            client: client as unknown as
+              Parameters<typeof previewKeycardSepoliaGas>[0]["client"],
+            chainId,
+            owner: from,
+            calls,
+            rpcUrl: opts.rpcUrl,
+          });
+
+          console.log(JSON.stringify(
+            gasPreview,
+            (_, value) =>
+              typeof value === "bigint"
+                ? value.toString()
+                : value,
+            2,
+          ));
         }
 
         if (opts.verifyKeycard) {
