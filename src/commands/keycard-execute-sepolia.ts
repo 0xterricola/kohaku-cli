@@ -14,6 +14,7 @@ import {
 import { sepolia } from "viem/chains";
 import { SIMPLE_7702_IMPLEMENTATION } from "../utils/simple-7702.js";
 import { buildKeycardSepoliaUnsignedIntent } from "../utils/keycard-sepolia-unsigned-intent.js";
+import { prepareKeycardSepoliaUnsignedDraft } from "../utils/keycard-sepolia-unsigned-draft.js";
 
 type Options = {
   from: string;
@@ -23,6 +24,7 @@ type Options = {
   rpcUrl: string;
   broadcast?: boolean;
   verifyKeycard?: boolean;
+  prepareUnsigned?: boolean;
   keycardBridge?: string;
   keycardPath?: string;
 };
@@ -84,6 +86,7 @@ export function registerKeycardExecuteSepoliaCommand(
     .requiredOption("--rpc-url <url>", "Sepolia JSON-RPC URL")
     .option("--broadcast", "Request live UserOperation execution")
     .option("--verify-keycard", "Verify physical Keycard identity without signing")
+    .option("--prepare-unsigned", "Resolve unsigned UserOperation nonce and calldata")
     .option("--keycard-bridge <path>", "Native Keycard bridge executable")
     .option("--keycard-path <path>", "Hardware derivation path")
     .action(async (opts: Options) => {
@@ -203,6 +206,21 @@ export function registerKeycardExecuteSepoliaCommand(
         };
 
         console.log(JSON.stringify(review, null, 2));
+
+        if (opts.prepareUnsigned) {
+          const draft = await prepareKeycardSepoliaUnsignedDraft({
+            client,
+            owner: from,
+            calls,
+          });
+
+          console.log(JSON.stringify({
+            mode: "keycard-sepolia-unsigned-userop-draft",
+            ...draft,
+            delegationNeeded: currentCode === "0x",
+            userOperationGas: null,
+          }, null, 2));
+        }
 
         if (opts.verifyKeycard) {
           const approved = await confirm({
