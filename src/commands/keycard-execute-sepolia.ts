@@ -1,8 +1,12 @@
+import { confirm } from "@inquirer/prompts";
+import { isAbsolute } from "node:path";
 import type { Command } from "commander";
+import { createKeycardAccount } from "../utils/keycard-account.js";
 import {
   createPublicClient,
   formatEther,
   getAddress,
+  isAddressEqual,
   http,
   keccak256,
   type Hex,
@@ -17,6 +21,9 @@ type Options = {
   values?: string;
   rpcUrl: string;
   broadcast?: boolean;
+  verifyKeycard?: boolean;
+  keycardBridge?: string;
+  keycardPath?: string;
 };
 
 function split(value: string): string[] {
@@ -75,6 +82,9 @@ export function registerKeycardExecuteSepoliaCommand(
     .option("--values <wei>", "Comma-separated ETH values in wei")
     .requiredOption("--rpc-url <url>", "Sepolia JSON-RPC URL")
     .option("--broadcast", "Request live UserOperation execution")
+    .option("--verify-keycard", "Verify physical Keycard identity without signing")
+    .option("--keycard-bridge <path>", "Native Keycard bridge executable")
+    .option("--keycard-path <path>", "Hardware derivation path")
     .action(async (opts: Options) => {
       try {
         // Do not enable live execution before CLI integration testing.
@@ -83,6 +93,27 @@ export function registerKeycardExecuteSepoliaCommand(
           throw new Error(
             "Live hardware UserOperation submission is not enabled " +
             "in this checkpoint.",
+          );
+        }
+
+        if (opts.verifyKeycard) {
+          if (
+            !opts.keycardBridge ||
+            !isAbsolute(opts.keycardBridge)
+          ) {
+            throw new Error(
+              "--verify-keycard requires an absolute --keycard-bridge path.",
+            );
+          }
+
+          if (!process.stdin.isTTY) {
+            throw new Error(
+              "Interactive terminal required for hardware verification.",
+            );
+          }
+        } else if (opts.keycardBridge || opts.keycardPath) {
+          throw new Error(
+            "Hardware bridge options require --verify-keycard.",
           );
         }
 
@@ -159,6 +190,37 @@ export function registerKeycardExecuteSepoliaCommand(
         };
 
         console.log(JSON.stringify(review, null, 2));
+
+        if (opts.verifyKeycard) {
+          const approved = await confirm({
+            message:
+              "Access physical Keycard to verify owner identity? " +
+              "No signing or broadcasting.",
+            default: false,
+          });
+
+          if (!approved) {
+            throw new Error("Hardware verification declined.");
+          }
+
+          const account = createKeycardAccount({
+            binary: opts.keycardBridge!,
+            path: opts.keycardPath,
+            transport: "native",
+          });
+
+          if (!isAddressEqual(account.address, from)) {
+            throw new Error("Physical Keycard owner mismatch.");
+          }
+
+          console.log(JSON.stringify({
+            mode: "keycard-sepolia-hardware-verification",
+            owner: account.address,
+            identityVerified: true,
+            signingPerformed: false,
+            submissionPerformed: false,
+          }, null, 2));
+        }
       } catch (error) {
         console.error(
           "keycard-execute-sepolia:",

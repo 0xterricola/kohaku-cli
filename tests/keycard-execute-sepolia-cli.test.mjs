@@ -138,3 +138,45 @@ test("rejects foreign account delegation", async () => {
     assert.ok(!methods.includes("eth_sendUserOperation"));
   });
 });
+
+test("hardware verification requires an explicit bridge", async () => {
+  await withMockRpc({}, async (args, methods) => {
+    const result = await run([
+      ...args,
+      "--verify-keycard",
+    ]);
+
+    assert.notEqual(result.code, 0);
+    assert.match(result.output, /requires an absolute --keycard-bridge path/);
+    assert.equal(methods.length, 0);
+  });
+});
+
+test("hardware verification rejects non-interactive execution", async () => {
+  await withMockRpc({}, async (args, methods) => {
+    const result = await run([
+      ...args,
+      "--verify-keycard",
+      "--keycard-bridge",
+      "/nonexistent/keycard-bridge",
+    ]);
+
+    assert.notEqual(result.code, 0);
+    assert.match(result.output, /Interactive terminal required/);
+    assert.equal(methods.length, 0);
+  });
+});
+
+test("hardware bridge cannot be silently ignored", async () => {
+  await withMockRpc({}, async (args, methods) => {
+    const result = await run([
+      ...args,
+      "--keycard-bridge",
+      "/nonexistent/keycard-bridge",
+    ]);
+
+    assert.notEqual(result.code, 0);
+    assert.match(result.output, /require --verify-keycard/);
+    assert.equal(methods.length, 0);
+  });
+});
