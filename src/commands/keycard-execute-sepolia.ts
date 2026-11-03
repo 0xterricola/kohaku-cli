@@ -13,6 +13,7 @@ import {
 } from "viem";
 import { sepolia } from "viem/chains";
 import { SIMPLE_7702_IMPLEMENTATION } from "../utils/simple-7702.js";
+import { buildKeycardSepoliaUnsignedIntent } from "../utils/keycard-sepolia-unsigned-intent.js";
 
 type Options = {
   from: string;
@@ -169,6 +170,14 @@ export function registerKeycardExecuteSepoliaCommand(
           );
         }
 
+        const unsignedIntent = buildKeycardSepoliaUnsignedIntent({
+          owner: from,
+          chainId,
+          pendingEoaNonce: nonce,
+          delegationNeeded: currentCode === "0x",
+          calls,
+        });
+
         const review = {
           mode: "keycard-sepolia-userop-readiness",
           broadcast: false,
@@ -179,6 +188,10 @@ export function registerKeycardExecuteSepoliaCommand(
           balanceEth: formatEther(balance),
           implementation: SIMPLE_7702_IMPLEMENTATION,
           delegationNeeded: currentCode === "0x",
+          unsignedIntentDigest: unsignedIntent.digest,
+          digestKind: unsignedIntent.digestKind,
+          userOperationNonce: null,
+          userOperationGas: null,
           calls: calls.map(call => ({
             to: call.to,
             data: call.data,
