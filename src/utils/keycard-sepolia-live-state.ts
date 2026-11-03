@@ -63,12 +63,29 @@ export async function verifyKeycardSepoliaLiveState(opts: {
     throw new Error("Signing review intent mismatch.");
   }
 
+  const isUserOp = review.stage === "erc4337-userop";
+
   const expectedStageNonce =
     review.stage === "eip7702-authorization"
       ? BigInt(opts.expectedEoaNonce)
-      : review.stage === "erc4337-userop"
-        ? opts.expectedUserOpNonce
+      : isUserOp
+        ? review.nonce
         : null;
+
+  const nonceKey = isUserOp
+    ? review.nonce >> 64n
+    : 0n;
+
+  const expectedOnChainUserOpNonce = isUserOp
+    ? review.nonce
+    : opts.expectedUserOpNonce;
+
+  if (
+    review.nonce < 0n ||
+    nonceKey >= (1n << 192n)
+  ) {
+    throw new Error("Invalid ERC-4337 nonce.");
+  }
 
   if (
     expectedStageNonce === null ||
@@ -91,7 +108,7 @@ export async function verifyKeycardSepoliaLiveState(opts: {
       address: ENTRYPOINT,
       abi: NONCE_ABI,
       functionName: "getNonce",
-      args: [owner, 0n],
+      args: [owner, nonceKey],
     }),
     opts.client.getBytecode({ address: owner }),
   ]);
@@ -100,7 +117,7 @@ export async function verifyKeycardSepoliaLiveState(opts: {
     throw new Error("Stale pending EOA nonce.");
   }
 
-  if (userOpNonce !== opts.expectedUserOpNonce) {
+  if (userOpNonce !== expectedOnChainUserOpNonce) {
     throw new Error("Stale ERC-4337 nonce.");
   }
 
