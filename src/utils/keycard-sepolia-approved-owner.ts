@@ -39,6 +39,7 @@ export function createApprovedKeycardSepoliaOwner(opts: {
   owner: SigningOwner;
   expectedOwner: Address;
   unsignedIntentDigest: Hex;
+  expectedCallData?: Hex;
   approve: (review: KeycardSigningReview) => Promise<boolean>;
   revalidate: (
     review: KeycardSigningReview,
@@ -159,6 +160,7 @@ export function createApprovedKeycardSepoliaOwner(opts: {
       const message = payload.message as {
         sender?: unknown;
         nonce?: unknown;
+        callData?: unknown;
       };
 
       if (
@@ -187,6 +189,19 @@ export function createApprovedKeycardSepoliaOwner(opts: {
         message.nonce < 0n
       ) {
         throw new Error("Invalid UserOperation nonce.");
+      }
+
+      if (
+        opts.expectedCallData !== undefined &&
+        (
+          typeof message.callData !== "string" ||
+          message.callData.toLowerCase() !==
+            opts.expectedCallData.toLowerCase()
+        )
+      ) {
+        throw new Error(
+          "UserOperation calldata differs from reviewed batch.",
+        );
       }
 
       const digest = hashTypedData(payload);

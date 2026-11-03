@@ -34,7 +34,7 @@ const intent = buildKeycardSepoliaUnsignedIntent({
   calls,
 }).digest;
 
-function fixture() {
+async function fixture() {
   const events = [];
   const state = {
     eoaNonce: 1,
@@ -81,6 +81,21 @@ function fixture() {
     },
   };
 
+  const encoder = await toSimple7702SmartAccount({
+    client: createPublicClient({
+      chain: sepolia,
+      transport: custom({
+        async request() {
+          throw new Error("NETWORK_FORBIDDEN");
+        },
+      }),
+    }),
+    owner: software,
+    implementation: SIMPLE_7702_IMPLEMENTATION,
+  });
+
+  const expectedCallData = await encoder.encodeCalls(calls);
+
   const approved = createLiveApprovedKeycardSepoliaOwner({
     client,
     owner: hardware,
@@ -90,6 +105,7 @@ function fixture() {
     expectedUserOpNonce: 0n,
     expectedDelegationNeeded: true,
     expectedIntentDigest: intent,
+    expectedCallData,
 
     approve: async review => {
       events.push(`approve:${review.stage}`);
@@ -101,7 +117,7 @@ function fixture() {
 }
 
 test("live authorization revalidation permits fresh nonce", async () => {
-  const f = fixture();
+  const f = await fixture();
 
   const result = await f.approved.signAuthorization({
     address: SIMPLE_7702_IMPLEMENTATION,
@@ -117,7 +133,7 @@ test("live authorization revalidation permits fresh nonce", async () => {
 });
 
 test("stale live nonce rejects before hardware signing", async () => {
-  const f = fixture();
+  const f = await fixture();
   f.state.eoaNonce = 2;
 
   await assert.rejects(
@@ -133,7 +149,7 @@ test("stale live nonce rejects before hardware signing", async () => {
 });
 
 test("live UserOp uses its actual nonzero nonce key", async () => {
-  const f = fixture();
+  const f = await fixture();
 
   const rpc = createPublicClient({
     chain: sepolia,
@@ -173,7 +189,7 @@ test("live UserOp uses its actual nonzero nonce key", async () => {
 });
 
 test("changed UserOp sequence rejects before hardware", async () => {
-  const f = fixture();
+  const f = await fixture();
   f.state.userOpSequence = 1n;
 
   const rpc = createPublicClient({
@@ -205,6 +221,43 @@ test("changed UserOp sequence rejects before hardware", async () => {
       chainId: sepolia.id,
     }),
     /Stale ERC-4337 nonce/,
+  );
+
+  assert.equal(f.events.includes("hardware-userop"), false);
+});
+
+test("modified batch calldata fails before hardware signing", async () => {
+  const f = await fixture();
+
+  const rpc = createPublicClient({
+    chain: sepolia,
+    transport: custom({
+      async request() {
+        throw new Error("NETWORK_FORBIDDEN");
+      },
+    }),
+  });
+
+  const account = await toSimple7702SmartAccount({
+    client: rpc,
+    owner: f.approved,
+    implementation: SIMPLE_7702_IMPLEMENTATION,
+  });
+
+  await assert.rejects(
+    account.signUserOperation({
+      sender: software.address,
+      nonce: 0n,
+      callData: "0xdeadbeef",
+      callGasLimit: 100000n,
+      verificationGasLimit: 150000n,
+      preVerificationGas: 50000n,
+      maxFeePerGas: 1000000000n,
+      maxPriorityFeePerGas: 100000000n,
+      signature: "0x",
+      chainId: sepolia.id,
+    }),
+    /UserOperation calldata differs from reviewed batch/,
   );
 
   assert.equal(f.events.includes("hardware-userop"), false);

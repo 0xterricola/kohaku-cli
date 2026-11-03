@@ -30,12 +30,14 @@ export function createLiveApprovedKeycardSepoliaOwner(opts: {
   expectedUserOpNonce: bigint;
   expectedDelegationNeeded: boolean;
   expectedIntentDigest: Hex;
+  expectedCallData: Hex;
   approve: ApprovedOptions["approve"];
 }) {
   return createApprovedKeycardSepoliaOwner({
     owner: opts.owner,
     expectedOwner: opts.expectedOwner,
     unsignedIntentDigest: opts.expectedIntentDigest,
+    expectedCallData: opts.expectedCallData,
     approve: opts.approve,
 
     revalidate: async review => {
