@@ -412,6 +412,13 @@ export async function sendEip7702BatchUserOperation(
     );
   }
 
+  // A hardware submission must record its hash before network send.
+  if (opts.owner && !opts.onSubmitted) {
+    throw new Error(
+      "External EIP-7702 owner requires UserOperation hash persistence."
+    );
+  }
+
   return withTor(
     !opts.withoutTor,
     { rpcUrl: opts.rpcUrl, walletDir: opts.walletDir },
