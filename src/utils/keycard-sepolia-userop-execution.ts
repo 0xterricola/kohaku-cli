@@ -221,8 +221,29 @@ export async function sendLiveKeycardSepoliaUserOperation(
     approve: approveSigning,
   });
 
-  return sendKeycardSepoliaUserOperation({
+  const result = await sendKeycardSepoliaUserOperation({
     ...submissionOpts,
     owner: guardedOwner,
   });
+
+  const { reconcileKeycardUserOpReceipt } =
+    await import("./keycard-userop-journal.js");
+
+  try {
+    await reconcileKeycardUserOpReceipt({
+      directory: opts.journalDirectory,
+      userOpHash: result.userOpHash,
+      txHash: result.txHash,
+      client: opts.client,
+    });
+  } catch (cause) {
+    throw new Error(
+      `UserOperation ${result.userOpHash} was included at ` +
+      `${result.txHash}, but the journal could not be ` +
+      "reconciled. Do not resubmit.",
+      { cause },
+    );
+  }
+
+  return result;
 }

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   mkdtempSync,
   readdirSync,
+  readFileSync,
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,6 +13,12 @@ import {
   toAccount,
 } from "viem/accounts";
 import { sepolia } from "viem/chains";
+import {
+  encodeAbiParameters,
+  encodeEventTopics,
+  parseAbiItem,
+  parseAbiParameters,
+} from "viem";
 
 import {
   sendLiveKeycardSepoliaUserOperation,
@@ -22,8 +29,16 @@ const software = privateKeyToAccount(
 );
 
 const txHash = `0x${"ab".repeat(32)}`;
+const entryPoint =
+  "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
+const event = parseAbiItem(
+  "event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)",
+);
+const eventData = parseAbiParameters(
+  "uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed",
+);
 
-async function fixture(tampered = false) {
+async function fixture(tampered = false, unverifiedReceipt = false) {
   const directory = mkdtempSync(
     join(tmpdir(), "kohaku-live-execution-"),
   );
@@ -84,6 +99,36 @@ async function fixture(tampered = false) {
       async waitForTransactionReceipt() {
         events.push("chain-receipt");
         return { status: "success" };
+      },
+
+      async getTransactionReceipt({ hash }) {
+        assert.equal(hash, txHash);
+        assert.ok(approvedHash);
+
+        return {
+          transactionHash: txHash,
+          status: "success",
+          blockNumber: 12052649n,
+          logs: unverifiedReceipt ? [] : [{
+            address: entryPoint,
+            topics: encodeEventTopics({
+              abi: [event],
+              eventName: "UserOperationEvent",
+              args: {
+                userOpHash: approvedHash,
+                sender: software.address,
+                paymaster:
+                  "0x0000000000000000000000000000000000000000",
+              },
+            }),
+            data: encodeAbiParameters(eventData, [
+              37n << 64n,
+              true,
+              418n,
+              500n,
+            ]),
+          }],
+        };
       },
     };
 
@@ -170,12 +215,36 @@ async function fixture(tampered = false) {
       assert.equal(events.includes("hardware-userop"), false);
       assert.equal(events.includes("approve:submission"), false);
       assert.equal(readdirSync(directory).length, 0);
+    } else if (unverifiedReceipt) {
+      await assert.rejects(
+        execute(),
+        /journal could not be reconciled/,
+      );
+
+      assert.equal(sendCount, 1);
+      const files = readdirSync(directory);
+      assert.equal(files.length, 1);
+
+      const record = JSON.parse(
+        readFileSync(join(directory, files[0]), "utf8"),
+      );
+      assert.equal(record.status, "outcome-unknown");
     } else {
       const result = await execute();
 
       assert.equal(result.txHash, txHash);
       assert.equal(sendCount, 1);
-      assert.equal(readdirSync(directory).length, 1);
+
+      const files = readdirSync(directory);
+      assert.equal(files.length, 1);
+
+      const record = JSON.parse(
+        readFileSync(join(directory, files[0]), "utf8"),
+      );
+
+      assert.equal(record.status, "confirmed");
+      assert.equal(record.txHash, txHash);
+      assert.equal(record.blockNumber, "12052649");
 
       assert.deepEqual(events, [
         "approve:eip7702-authorization",
@@ -202,4 +271,8 @@ test("live-state adapter completes a mocked two-call UserOp", async () => {
 
 test("tampered bundler calldata fails before UserOp signing", async () => {
   await fixture(true);
+});
+
+test("failed reconciliation preserves unknown status without retry", async () => {
+  await fixture(false, true);
 });
