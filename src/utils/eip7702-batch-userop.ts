@@ -390,6 +390,10 @@ export async function sendEip7702BatchUserOperation(
     client: KohakuPublicClient;
     privateKey?: string;
     owner?: LocalAccount;
+    /** Inject a bundler client for isolated integration testing. */
+    bundlerClientOverride?: ReturnType<
+      typeof createPimlicoBundlerClient
+    >["bundlerClient"];
     chainId: bigint;
     calls: readonly Eip7702BatchCall[];
     /** Persist the deterministic hash before sending. A timeout must not trigger the next batch. */
@@ -435,11 +439,13 @@ export async function sendEip7702BatchUserOperation(
         implementation: SIMPLE_7702_IMPLEMENTATION,
       });
 
-      const { bundlerClient } = createPimlicoBundlerClient({
-        client: opts.client,
-        account,
-        chainId: opts.chainId,
-      });
+      const bundlerClient =
+        opts.bundlerClientOverride ??
+        createPimlicoBundlerClient({
+          client: opts.client,
+          account,
+          chainId: opts.chainId,
+        }).bundlerClient;
 
       const authorization = await signAuthIfNeeded(
         opts.client,
