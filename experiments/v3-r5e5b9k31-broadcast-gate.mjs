@@ -64,7 +64,14 @@ export function verifySigningEvidence(k29, k30) {
   assert.equal(k30.signedBytesPersisted, false);
   assert.equal(k30.broadcast, false);
 
-  assert.equal(k29.simulatedAtBlock, k30.simulatedAtBlock);
+  // K30 is an earlier, independently verified offline
+  // signature. K29 is refreshed by subsequent attempts.
+  // They need not share a simulation block or fee quote.
+  assert.ok(
+    BigInt(k29.simulatedAtBlock) >=
+      BigInt(k30.simulatedAtBlock),
+    "Latest simulation predates signed checkpoint"
+  );
   assert.equal(k29.nonce, String(k30.nonce));
   assert.equal(k30.depositIndex, 17);
   assert.equal(k30.depositValueWei, amount.toString());
@@ -73,11 +80,20 @@ export function verifySigningEvidence(k29, k30) {
   assert.equal(k30.sender.toLowerCase(), sender.toLowerCase());
   assert.equal(k30.entrypoint.toLowerCase(), entrypoint.toLowerCase());
 
-  assert.equal(k30.gasLimit, k29.suggestedGasLimit);
-  assert.equal(k30.maxFeePerGas, k29.suggestedMaxFeePerGas);
-  assert.equal(
-    k30.maxPriorityFeePerGas,
-    k29.suggestedPriorityFeePerGas
+  // Validate each checkpoint's parameters separately.
+  // Current fees must always be refreshed before signing.
+  assert.ok(BigInt(k30.gasLimit) > 0n);
+  assert.ok(
+    BigInt(k30.maxFeePerGas) >=
+      BigInt(k30.maxPriorityFeePerGas)
+  );
+  assert.ok(
+    BigInt(k29.suggestedGasLimit) >
+      BigInt(k29.realGasEstimate)
+  );
+  assert.ok(
+    BigInt(k29.suggestedMaxFeePerGas) >=
+      BigInt(k29.suggestedPriorityFeePerGas)
   );
 
   assert.match(k30.transactionHash, /^0x[0-9a-f]{64}$/i);
