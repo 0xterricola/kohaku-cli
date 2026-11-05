@@ -1,5 +1,6 @@
 import { createPublicClient, custom, http } from "viem";
 import { foundry } from "viem/chains";
+import { resolveTransactionSender } from "../lib/transaction-sender.js";
 import { startActivityLog } from "../utils/activity-log.js";
 import { confirm, select } from "@inquirer/prompts";
 import { spinner } from "@clack/prompts";
@@ -26,7 +27,6 @@ import {
   formatPublicAccountBalanceLabel,
   listPublicAccountsWithBalance,
   fromValueNeedsNameResolution,
-  resolveShieldSender,
   simulateTransactionOrThrow,
 } from "../lib/shield-flow.js";
 import { cliOptions, passwordFileOption } from "../utils/cli-command-options";
@@ -85,7 +85,7 @@ type TransactRawOpts = {
   password?: string;
   passwordFile?: string;
   from?: string;
-  fromPriv?: boolean;
+  senderPriv?: string;
   targets?: string;
   payloads?: string;
   values?: string;
@@ -255,8 +255,8 @@ export function registerTransactRawCommand(program: Command): void {
       "Public sender address, HD index, or stealth selector (s0)"
     )
     .option(
-      "--from-priv",
-      "With --broadcast: derive --from index from mnemonic when missing from public accounts"
+      "--sender-priv <key>",
+      "Private key for an external sender (interactive broadcasts prompt when needed)"
     )
     .option(
       "--values <wei>",
@@ -323,8 +323,8 @@ export function registerTransactRawCommand(program: Command): void {
           if (opts.broadcast) {
             throw new Error("Keycard broadcasting is disabled.");
           }
-          if (opts.fromPriv) {
-            throw new Error("--from-priv cannot be used with Keycard.");
+          if (opts.senderPriv) {
+            throw new Error("--sender-priv cannot be used with Keycard.");
           }
           if (
             opts.wallet || opts.password || opts.passwordFile ||
@@ -886,13 +886,13 @@ export function registerTransactRawCommand(program: Command): void {
       let senderAddress: string;
       let senderPrivateKey: string | undefined;
       try {
-        const resolved = resolveShieldSender({
+        const resolved = await resolveTransactionSender({
           fromValue,
           walletDir,
           mnemonic,
           password,
           dryRun,
-          allowDeriveFromMnemonic: !!opts.fromPriv,
+          senderPriv: opts.senderPriv, nonInteractive: opts.nonInteractive,
         });
         senderAddress = resolved.senderAddress;
         senderPrivateKey = resolved.senderPrivateKey;
@@ -1010,7 +1010,7 @@ export function registerTransactRawCommand(program: Command): void {
 
         if (!senderPrivateKey) {
           cliError(
-            "Cannot sign: no private key for this --from (use a saved public account or --from-priv with --broadcast)."
+            "Cannot sign: no private key for this --from (use a saved account or --sender-priv <key>)."
           );
           return;
         }
