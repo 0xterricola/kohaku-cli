@@ -7,6 +7,8 @@ import { pathToFileURL } from "node:url";
 import {
   decodeFunctionData,
   defineChain,
+  getAddress,
+  type Hex,
   isAddressEqual,
   keccak256,
   parseTransaction,
@@ -17,10 +19,10 @@ import {
 import { privateKeyToAccount, toAccount } from "viem/accounts";
 
 import { buildDepositPayload } from
-  "../../kohaku-sdk-research/packages/privacy-pools/src/state/selectors/deposits.selector.ts";
+  "../../kohaku-sdk-research/packages/privacy-pools/src/state/selectors/deposits.selector.js";
 
 import { entrypointDepositNativeAbi } from
-  "../../kohaku-sdk-research/packages/privacy-pools/src/data/abis/entrypoint.abi.ts";
+  "../../kohaku-sdk-research/packages/privacy-pools/src/data/abis/entrypoint.abi.js";
 
 import { makeWalletClient } from "../src/utils/viem-tx.js";
 
@@ -151,7 +153,7 @@ test("R3 credentials bind deterministically to SDK deposit and EIP-1559", async 
 
   const decoded = decodeFunctionData({
     abi: entrypointDepositNativeAbi,
-    data: payload.data,
+    data: payload.data as Hex,
   });
 
   assert.equal(decoded.functionName, "deposit");
@@ -195,7 +197,7 @@ test("R3 credentials bind deterministically to SDK deposit and EIP-1559", async 
 
   const wallet = makeWalletClient(
     external,
-    { chain } as Parameters<typeof makeWalletClient>[1],
+    { chain } as unknown as Parameters<typeof makeWalletClient>[1],
     "http://127.0.0.1:8545"
   );
 
@@ -205,8 +207,8 @@ test("R3 credentials bind deterministically to SDK deposit and EIP-1559", async 
     type: "eip1559" as const,
     chainId: Number(chainId),
     nonce: 0,
-    to: payload.to,
-    data: payload.data,
+    to: getAddress(payload.to),
+    data: payload.data as Hex,
     value: payload.value,
     gas: 350000n,
     maxFeePerGas: 2n,
@@ -215,6 +217,7 @@ test("R3 credentials bind deterministically to SDK deposit and EIP-1559", async 
 
   const digest = keccak256(serializeTransaction(tx));
   const signed = await external.signTransaction(tx);
+  assert.match(signed, /^0x02[0-9a-f]+$/i);
 
   assert.equal(signingCalls, 1);
 
@@ -230,7 +233,7 @@ test("R3 credentials bind deterministically to SDK deposit and EIP-1559", async 
 
   assert.ok(isAddressEqual(
     await recoverTransactionAddress({
-      serializedTransaction: signed,
+      serializedTransaction: signed as `0x02${string}`,
     }),
     software.address
   ));
@@ -239,7 +242,7 @@ test("R3 credentials bind deterministically to SDK deposit and EIP-1559", async 
     digest,
     keccak256(serializeTransaction({
       ...tx,
-      data: wrongPayload.data,
+      data: wrongPayload.data as Hex,
     }))
   );
 
