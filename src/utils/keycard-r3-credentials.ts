@@ -20,6 +20,7 @@ const R3_PATH =
   /^m\/28784'\/1'(?:\/[0-9]+')+$/;
 
 export type KeycardR3CredentialProvider = {
+  readonly accountIndex: number;
   readonly secretManager:
     ReturnType<typeof PrivacyPoolsSecretManager>;
 
@@ -99,6 +100,7 @@ export function createKeycardR3CredentialProvider(
   }
 
   return {
+    accountIndex,
     secretManager,
     deriveAt,
 
