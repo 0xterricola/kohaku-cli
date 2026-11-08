@@ -104,7 +104,7 @@ Implementation:
 - src/utils/keycard-shell-qr-exchange.ts
 - docs/V4-SHELL-PRIVACY-POOLS-DEMO.md
 
-Source commit reference: pending final Git review.
+Source implementation commit: 2fbae75 — feat: add Keycard Shell Privacy Pools V1 offline demo.
 
 ## Remaining milestone
 
