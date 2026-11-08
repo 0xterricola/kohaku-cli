@@ -14,17 +14,148 @@ import {
 
 import { encodeShellQrUr } from "../utils/keycard-shell-qr-transport.js";
 import { decodeShellQrImage } from "../utils/keycard-shell-qr-image.js";
+import { exchangeShellQr } from "../utils/keycard-shell-qr-exchange.js";
+import { createShellQrR3Provider } from "../utils/keycard-shell-qr-r3-provider.js";
+import { createShellBatchRequest } from "../utils/keycard-shell-qr-batch.js";
+import { decryptShellBatchResponse } from "../utils/keycard-shell-qr-batch-response.js";
 
 type Options = {
   responseImage?: string;
+  batchPaths?: string;
+  credentialMode?: string;
+  entrypoint?: string;
+  depositIndex?: string;
+  withdrawIndex?: string;
 };
 
-export function registerKeycardShellQrCommand(program: Command): void {
+function parseIndex(value: string | undefined, name: string): number {
+  if (!value || !/^(0|[1-9][0-9]*)$/.test(value)) {
+    throw new Error(`Valid ${name} required`);
+  }
+
+  const index = Number(value);
+  if (!Number.isSafeInteger(index) || index > 0x7fffffff) {
+    throw new Error(`Invalid ${name}`);
+  }
+
+  return index;
+}
+
+export function registerKeycardShellQrCommand(
+  program: Command,
+  exchange: typeof exchangeShellQr = exchangeShellQr,
+): void {
   program
     .command("keycard-shell-qr")
     .description("Keycard Shell Privacy Pools V1 QR receipt")
     .option("--response-image <path>", "PNG containing Shell response QR")
+    .option("--batch-paths <paths>", "KKQ3: one or two comma-separated derivation paths")
+    .option("--credential-mode <mode>", "SDK operation: deposit, withdrawal or signer")
+    .option("--entrypoint <address>", "Sepolia Privacy Pools entrypoint")
+    .option("--deposit-index <index>", "Privacy Pools deposit index")
+    .option("--withdraw-index <index>", "Privacy Pools withdrawal index")
     .action(async (options: Options) => {
+      if (options.credentialMode !== undefined) {
+        if (options.batchPaths !== undefined) {
+          throw new Error("Choose credential mode or batch paths");
+        }
+
+        const mode = options.credentialMode;
+        if (!["deposit", "withdrawal", "signer"].includes(mode)) {
+          throw new Error("Invalid credential mode");
+        }
+
+        if (
+          !options.entrypoint ||
+          !/^0x[0-9a-fA-F]{40}$/.test(options.entrypoint)
+        ) {
+          throw new Error("Valid --entrypoint address required");
+        }
+
+        const depositIndex = parseIndex(
+          options.depositIndex,
+          "--deposit-index",
+        );
+
+        const coordinates = {
+          chainId: 11155111n,
+          entrypointAddress: BigInt(options.entrypoint),
+          depositIndex,
+        };
+
+        const provider = createShellQrR3Provider(
+          (request, fingerprint) =>
+            exchange(request, fingerprint, options),
+        );
+
+        try {
+          if (mode === "deposit") {
+            await provider.secretManager.getDepositSecrets(
+              coordinates,
+            );
+          } else {
+            const withdrawIndex = parseIndex(
+              options.withdrawIndex,
+              "--withdraw-index",
+            );
+
+            const withdrawalCoordinates = {
+              ...coordinates,
+              withdrawIndex,
+            };
+
+            if (mode === "withdrawal") {
+              await provider.secretManager.getSecrets(
+                withdrawalCoordinates,
+              );
+            } else {
+              await provider.secretManager.deriveEphemeralSigner(
+                withdrawalCoordinates,
+              );
+            }
+          }
+
+          console.log(
+            `PASS: ${mode} credentials derived via encrypted Shell QR`,
+          );
+          console.log("No credential values printed.");
+        } finally {
+          provider.dispose();
+        }
+
+        return;
+      }
+
+      if (options.batchPaths !== undefined) {
+        const paths = options.batchPaths
+          .split(",")
+          .map((path) => path.trim());
+
+        const session = createShellBatchRequest(paths);
+        const response = await exchange(
+          session.request,
+          session.fingerprint,
+          options,
+        );
+
+        const credentials = decryptShellBatchResponse(
+          session,
+          response,
+        );
+
+        try {
+          console.log(
+            `PASS: ${credentials.length} encrypted credential(s) authenticated and decrypted`,
+          );
+          console.log(
+            "Plaintext credentials were not printed or saved.",
+          );
+        } finally {
+          credentials.forEach((credential) => credential.fill(0));
+        }
+        return;
+      }
+
       const directory = join(
         homedir(),
         "Library/Caches/kohaku-v4-a8",
