@@ -23,6 +23,7 @@ import { registerTransferCommand } from "./commands/transfer";
 import { registerTransactRawCommand } from "./commands/transact-raw";
 import { registerKeycardExecuteSepoliaCommand } from "./commands/keycard-execute-sepolia";
 import { registerKeycardSubmitSepoliaCommand } from "./commands/keycard-submit-sepolia";
+import { registerKeycardShellQrCommand } from "./commands/keycard-shell-qr";
 import { registerViewNetworkTrafficCommand } from "./commands/viewNetworkTraffic";
 import { registerClearTorCacheCommand } from "./commands/clear-tor-cache";
 import { registerFetchSyncCacheCommand } from "./commands/fetch-sync-cache";
@@ -66,6 +67,7 @@ async function main(): Promise<void> {
   registerTransactRawCommand(program);
   registerKeycardExecuteSepoliaCommand(program);
   registerKeycardSubmitSepoliaCommand(program);
+  registerKeycardShellQrCommand(program);
   registerRegisterNameCommand(program);
   registerRenewNameCommand(program);
   registerTransferNameCommand(program);
