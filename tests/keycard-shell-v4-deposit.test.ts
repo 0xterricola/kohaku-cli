@@ -1,3 +1,4 @@
+import { isHex } from "viem";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -28,10 +29,10 @@ import {
 } from "../src/utils/keycard-shell-qr-derive-response.js";
 import {
   buildDepositPayload,
-} from "../../kohaku-sdk-research/packages/privacy-pools/src/state/selectors/deposits.selector.ts";
+} from "../../kohaku-sdk-research/packages/privacy-pools/src/state/selectors/deposits.selector";
 import {
   entrypointDepositNativeAbi,
-} from "../../kohaku-sdk-research/packages/privacy-pools/src/data/abis/entrypoint.abi.ts";
+} from "../../kohaku-sdk-research/packages/privacy-pools/src/data/abis/entrypoint.abi";
 
 test("V4 Shell QR deposit index 15 reproduces Sepolia calldata", async () => {
   // Public synthetic fixture; never a real wallet root.
@@ -184,7 +185,12 @@ test("V4 Shell QR deposit index 15 reproduces Sepolia calldata", async () => {
 
     const decoded = decodeFunctionData({
       abi: entrypointDepositNativeAbi,
-      data: payload.data,
+      data: (() => {
+        if (!isHex(payload.data)) {
+          throw new Error("Invalid deposit calldata");
+        }
+        return payload.data;
+      })(),
     });
 
     assert.equal(decoded.functionName, "deposit");

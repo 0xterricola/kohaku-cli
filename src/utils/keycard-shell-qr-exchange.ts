@@ -3,12 +3,12 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { createInterface } from "node:readline/promises";
 
 import QRCode from "qrcode";
 
 import { decodeShellBatchRequest } from "./keycard-shell-qr-batch.js";
 import { decodeShellQrImage } from "./keycard-shell-qr-image.js";
+import { captureShellQrResponse } from "./keycard-shell-qr-camera.js";
 import { encodeShellQrUr } from "./keycard-shell-qr-transport.js";
 
 export async function exchangeShellQr(
@@ -59,34 +59,11 @@ export async function exchangeShellQr(
     spawnSync("open", [requestPath], { stdio: "ignore" });
   }
 
-  let responsePath = options.responseImage;
-
-  if (!responsePath) {
-    if (!process.stdin.isTTY) {
-      throw new Error("Interactive terminal required");
-    }
-
-    const rl = createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-
-    try {
-      responsePath = (
-        await rl.question(
-          "Save Shell response QR as PNG, then enter its path: ",
-        )
-      ).trim();
-    } finally {
-      rl.close();
-    }
+  if (!options.responseImage) {
+    return captureShellQrResponse();
   }
 
-  if (!responsePath) {
-    throw new Error("Response image path required");
-  }
-
-  const absolutePath = resolve(responsePath);
+  const absolutePath = resolve(options.responseImage);
   const metadata = await stat(absolutePath);
 
   if (!metadata.isFile() || metadata.size > 10_000_000) {

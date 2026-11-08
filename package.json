@@ -14,7 +14,8 @@
         "test": "tsx --test tests/*.test.ts tests/*.test.mjs",
         "dev": "tsx src/index.ts",
         "dev:prod": "NODE_ENV=production tsx src/index.ts",
-        "start": "node ./bin/kohaku.mjs"
+        "start": "node ./bin/kohaku.mjs",
+        "demo:shell": "tsx src/index.ts keycard-shell-demo"
     },
     "dependencies": {
         "@1001-digital/ethereum-names": "0.3.0",
