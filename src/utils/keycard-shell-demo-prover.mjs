@@ -138,6 +138,8 @@ export async function proveShellDemoWithdrawal({
   change,
   deposit,
   membership,
+  scope: requestedScope = 987654321n,
+  processooor = "0x0000000000000000000000000000000000000001",
 }) {
   assert.notEqual(existing.precommitment, change.precommitment);
   assert.equal(
@@ -160,9 +162,9 @@ export async function proveShellDemoWithdrawal({
 
   assert.ok(changeValue > 0n);
 
-  const scope = 987654321n;
+  const scope = requestedScope;
   const context = BigInt(calculateContext({
-    processooor: "0x0000000000000000000000000000000000000001",
+    processooor,
     data: "0x",
   }, scope));
 

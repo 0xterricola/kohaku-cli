@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { PrivacyPoolsV1_0xBow } from "@kohaku-eth/privacy-pools";
 import { decodeFunctionData, getAddress, isHex, toHex } from "viem";
 
+import { runLocalEvmDeposit } from "../utils/keycard-shell-local-evm.js";
 import { exchangeShellQr } from "../utils/keycard-shell-qr-exchange.js";
 import { createShellQrR3Provider } from "../utils/keycard-shell-qr-r3-provider.js";
 import { proveShellDemoWithdrawal } from "../utils/keycard-shell-demo-prover.mjs";
@@ -19,6 +20,8 @@ import { entrypointDepositNativeAbi } from "../../../kohaku-sdk-research/package
 
 type Options = {
   plan?: boolean;
+  localEvm?: boolean;
+  hardware?: boolean;
 };
 
 const checkpoints = [
@@ -59,7 +62,18 @@ export function registerKeycardShellDemoCommand(
     .command("keycard-shell-demo")
     .description("Guided Privacy Pools V1 offline demonstration")
     .option("--plan", "Display checkpoints without interactive pauses")
+    .option("--local-evm", "Run disposable local Anvil deposit rehearsal")
+    .option("--hardware", "Use Keycard Shell QR credentials with local Anvil")
     .action(async (options: Options) => {
+      if (options.hardware && !options.localEvm) {
+        throw new Error("--hardware requires --local-evm");
+      }
+      if (options.localEvm) {
+        assert.equal(options.plan, undefined, "--plan and --local-evm are mutually exclusive");
+        await runLocalEvmDeposit({ hardware: options.hardware });
+        return;
+      }
+
       console.log("\nKohaku Key V4 — Privacy Pools V1");
       console.log("MODE: Guided offline demonstration");
       console.log("SIGNING: DISABLED");

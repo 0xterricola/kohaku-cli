@@ -25,6 +25,8 @@ export function proveShellDemoWithdrawal(input: {
     stateProof: MembershipProof;
     aspProof: MembershipProof;
   };
+  scope?: bigint;
+  processooor?: `0x${string}`;
 }): Promise<{
   proof: WithdrawProveOutput["proof"];
   publicSignals: WithdrawProveOutput["publicSignals"];
